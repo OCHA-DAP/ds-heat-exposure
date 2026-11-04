@@ -1,0 +1,83 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex, nofollow">
+<title>Extreme heat and people in need</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Merriweather:wght@700&family=Roboto:wght@400;500;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY=" crossorigin="">
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=" crossorigin=""></script>
+<style>/*__CSS__*/</style>
+</head>
+<body>
+<a class="home-link" href="../">← Extreme heat and people in need</a>
+<header class="hero">
+  <p class="kicker">OCHA Centre for Humanitarian Data · draft for review</p>
+  <h1>Extreme heat and people in need</h1>
+  <p class="lede">A live update of <a href="https://heathealth.info/wp-content/uploads/Extreme-Heat-Report-IFRC-OCHA-2022.pdf" target="_blank" rel="noopener"><em>Extreme heat: Preparing for the heatwaves of the future</em></a>
+  (OCHA, IFRC and the Red Cross Red Crescent Climate Centre, 2022), recomputed with current weather data and applied to the people in need in this year's humanitarian plans.</p>
+  <p class="asof" id="asof"></p>
+</header>
+
+<nav class="filters" aria-label="Filters">
+  <label>Who<select id="f-group"></select></label>
+  <label>Age<select id="f-age"></select></label>
+  <label>Heat measure<select id="f-metric"></select></label>
+  <label id="f-thr-wrap">At least<select id="f-thr"></select></label>
+</nav>
+<p class="metric-def" id="metric-def"></p>
+
+<section class="kpis" id="kpis" aria-label="Headline numbers"></section>
+
+<section class="card">
+  <div class="card-head">
+    <h2 id="ts-title"></h2>
+    <button class="tbl-toggle" data-target="ts">Show as table</button>
+  </div>
+  <p class="sub" id="ts-sub"></p>
+  <div class="chart" id="ts-chart"></div>
+  <div class="tbl-wrap" id="ts-table" hidden></div>
+</section>
+
+<section class="card">
+  <div class="card-head">
+    <h2 id="gwl-title"></h2>
+    <button class="tbl-toggle" data-target="gwl">Show as table</button>
+  </div>
+  <p class="sub" id="gwl-sub"></p>
+  <div class="chart" id="gwl-chart"></div>
+  <div class="tbl-wrap" id="gwl-table" hidden></div>
+</section>
+
+<section class="card">
+  <div class="card-head">
+    <h2 id="map-title"></h2>
+    <label class="inline">Period<select id="f-period"></select></label>
+  </div>
+  <p class="sub" id="map-sub"></p>
+  <div id="map"></div>
+  <div class="legend" id="map-legend"></div>
+</section>
+
+<section class="card">
+  <h2 id="ctry-title"></h2>
+  <p class="sub" id="ctry-sub"></p>
+  <div class="tbl-wrap"><table class="data" id="ctry-table"></table></div>
+</section>
+
+<section class="card">
+  <h2>What the 2022 report said, and the numbers now</h2>
+  <p class="sub">The report quotes other studies. Each line gives the original figure and the closest live figure from this page. Methods differ, so read the pairs as an update in spirit, not a like-for-like recount.</p>
+  <div class="tbl-wrap"><table class="data" id="report-table"></table></div>
+</section>
+
+<section class="card prose" id="methods"></section>
+
+<div class="tooltip" id="tip" role="status" hidden></div>
+<script>/*__DATA__*/</script>
+<script>/*__APP__*/</script>
+</body>
+</html>
