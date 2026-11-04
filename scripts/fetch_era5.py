@@ -21,6 +21,7 @@ from heat.cds_jobs import JobBook
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 logging.getLogger("ecmwf").setLevel(logging.WARNING)
+logging.getLogger("azure").setLevel(logging.WARNING)
 logger = logging.getLogger("fetch_era5")
 
 ROOT = Path(__file__).resolve().parent.parent

@@ -19,7 +19,7 @@ Method, data sources and decisions: [docs/DESIGN.md](docs/DESIGN.md).
 | Step | Command | Output |
 |---|---|---|
 | C3S Atlas (CMIP6 monthly changes, ERA5 observed counts) | `uv run python scripts/fetch_atlas.py submit` then `collect` | `data/raw/atlas/` |
-| ERA5 daily backfill (CDS queue; resumable) | `uv run python scripts/fetch_era5.py submit` then `collect` (`scripts/collect_loop.sh` polls) | `data/era5c/` (land cells, int16) |
+| ERA5 daily backfill (CDS queue; resumable; **at most 2 requests in flight**: Copernicus asks for sequential submission and may suspend accounts that batch) | `screen -dmS heat-backfill bash -c 'caffeinate -i uv run python scripts/backfill_sequential.py >> data/state/backfill.log 2>&1'` | `data/era5c/` (land cells, int16) + shared raw copies |
 | Population grids + PiN units/weights | `uv run python scripts/build_population.py grids` / `plans` | `data/pop/` |
 | Observed metrics | `uv run python scripts/build_observed.py p95` then `years` | `data/metrics/obs/` |
 | Projections at warming levels | `uv run python scripts/build_projections.py` | `data/metrics/proj/` |
