@@ -15,6 +15,11 @@ Read `docs/DESIGN.md` first: it records the method and every user decision.
 - Plain language on the site; no table/column names or raw codes in visible text.
 
 ## Data plumbing
+- The ERA5 backfill and the build run on Databricks (`databricks.yml`, job `heat_exposure_backfill`,
+  id 48618764487730, single-node Job Compute, team CDS key injected by the policy). Prod deploys are run
+  by the user (`!`); state and compacted years live on the project blob so a retry resumes.
+- Copernicus: never more than 2 requests in flight (service protection measures; batch submission can
+  get the account suspended).
 - Everything downloaded from outside is also copied, untouched, to the team-shared DEV `raster`
   container (`heat/shared.py`: `era5/daily/raw/`, `era5/static/raw/`, `era5/monthly/raw/`,
   `c3s_atlas/raw/`, `worldpop/age_structures/`). KB: `pipelines/heat-exposure.md`. Keep those paths
