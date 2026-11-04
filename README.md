@@ -6,7 +6,7 @@ data for three populations: everyone, people in countries with a current humanit
 people in need in the current Humanitarian Needs and Response Plans (HNRPs), at the admin level the
 plans publish.
 
-**Site:** password-protected GitHub Pages (URL added on first deploy).
+**Site:** https://ocha-dap.github.io/ds-heat-exposure/ (dashboard password-protected while under review; first deploy pending the ERA5 backfill)
 
 What it answers: how much dangerous heat do today's people in need face — in recent years (observed,
 updated monthly) and at 1.5, 2 and 3 °C of global warming (people in need held at today's figures).
