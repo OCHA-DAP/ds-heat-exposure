@@ -1,0 +1,124 @@
+# Databricks Asset Bundle — ds-heat-exposure
+#
+# One job, run on demand (no schedule):
+#
+#   heat_exposure_backfill
+#     era5_backfill   scripts/backfill_sequential.py --persist-blob
+#                     ERA5 daily 1986-present from CDS, at most 2 requests in flight (Copernicus asks
+#                     for sequential submission). Every download is copied untouched to the shared dev
+#                     raster container, compacted, and pushed with the job state to the project blob,
+#                     so a restarted run resumes where it stopped. Runs for days.
+#     build_all       scripts/build_all.py (after the backfill)
+#                     percentiles, observed metrics, warming-level projections, cross-check, exposure
+#                     tables -> project blob. The GitHub Pages workflow then builds and deploys the site.
+#
+# Credentials are not in this file: the Job Compute (single node) policy injects DSCI_AZ_* and the team
+# CDSAPI_KEY (and fixes CDSAPI_URL to the CDS) from the dsci scope.
+#
+#   databricks bundle validate -t prod -p DEFAULT
+#   databricks bundle deploy   -t prod -p DEFAULT
+#   databricks bundle run heat_exposure_backfill -t prod -p DEFAULT --no-wait
+#
+# Code ships by pushing to main (source: GIT); `bundle deploy` only when this file changes.
+
+bundle:
+  name: ds-heat-exposure
+
+variables:
+  git_branch:
+    description: Repo branch the job pulls the code from
+    default: main
+  stage:
+    description: ocha-stratus data plane (this project lives on dev)
+    default: dev
+
+.git_source: &git_source
+  git_url: https://github.com/OCHA-DAP/ds-heat-exposure.git
+  git_provider: gitHub
+  git_branch: ${var.git_branch}
+
+.libs: &libs
+  - pypi: { package: "ocha-stratus>=0.1.9" }
+  - pypi: { package: "ecmwf-datastores-client" }
+  - pypi: { package: "xarray" }
+  - pypi: { package: "netCDF4" }
+  - pypi: { package: "h5netcdf" }
+  - pypi: { package: "dask" }
+  - pypi: { package: "scipy" }
+  - pypi: { package: "rasterio" }
+  - pypi: { package: "geopandas" }
+  - pypi: { package: "pyarrow" }
+  - pypi: { package: "fsspec" }
+  - pypi: { package: "aiohttp" }
+
+resources:
+  jobs:
+    heat_exposure_backfill:
+      name: Heat exposure — ERA5 backfill and build
+      description: "ERA5 daily backfill (sequential CDS requests) and the heat-exposure build for [ds-heat-exposure](https://github.com/OCHA-DAP/ds-heat-exposure)"
+      git_source: *git_source
+      tags:
+        databricks: job
+        type: exposure
+        kb: heat-exposure
+      permissions:
+        - group_name: dsci
+          level: CAN_MANAGE
+      max_concurrent_runs: 1
+      timeout_seconds: 518400 # 6 days
+      parameters:
+        - name: stage
+          default: ${var.stage}
+      job_clusters:
+        - job_cluster_key: small
+          new_cluster:
+            policy_id: "0017962FF5D1E3B9"
+            apply_policy_default_values: true
+            node_type_id: Standard_E4ads_v5
+        - job_cluster_key: large
+          new_cluster:
+            policy_id: "0017962FF5D1E3B9"
+            apply_policy_default_values: true
+            node_type_id: Standard_E8ads_v5
+      tasks:
+        - task_key: era5_backfill
+          job_cluster_key: small
+          libraries: *libs
+          max_retries: 3
+          min_retry_interval_millis: 600000
+          spark_python_task:
+            python_file: databricks/run_task.py
+            source: GIT
+            parameters:
+              - "scripts/backfill_sequential.py"
+              - "--stage"
+              - "{{job.parameters.stage}}"
+              - "--"
+              - "--persist-blob"
+        - task_key: build_all
+          depends_on:
+            - task_key: era5_backfill
+          job_cluster_key: large
+          libraries: *libs
+          spark_python_task:
+            python_file: databricks/run_task.py
+            source: GIT
+            parameters:
+              - "scripts/build_all.py"
+              - "--stage"
+              - "{{job.parameters.stage}}"
+
+targets:
+  dev:
+    mode: development
+    default: true
+    workspace:
+      profile: DEFAULT
+
+  prod:
+    mode: production
+    workspace:
+      profile: DEFAULT
+      root_path: /Workspace/Users/adm.tdowning@global.un.org/.bundle/${bundle.name}/${bundle.target}
+    run_as:
+      user_name: adm.tdowning@global.un.org

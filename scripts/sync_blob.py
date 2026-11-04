@@ -12,6 +12,8 @@ Groups (paths relative to data/):
   pop       pop/** (grids, plans.csv, units, weights)
   worldpop  raw/worldpop/*.tif               1 km WorldPop 2026 (~2.2 GB; needed to rebuild plans),
                                              DOWN only, from the team-shared raster container
+  atlas     raw/atlas/*.zip                  C3S Atlas downloads (~28 GB), DOWN only, shared container
+  era5static raw/era5/lsm.nc, ps_clim.nc     DOWN only, shared container
   tables    tables/*
 
 Uploads only send files whose size differs from the blob copy; downloads likewise.
@@ -116,6 +118,33 @@ def down(groups):
     logger.info("downloaded %d files", n)
 
 
+def down_atlas():
+    """C3S Atlas zips from the team-shared raster container, under their local job names."""
+    sys.path.insert(0, str(Path(__file__).resolve().parent))
+    import fetch_atlas
+
+    from heat import shared
+
+    for name, req in fetch_atlas.requests():
+        local = fetch_atlas.RAW / f"{name}.zip"
+        if local.exists() and local.stat().st_size == shared.blob_size(shared.atlas_blob(req)):
+            continue
+        if not shared.download(shared.atlas_blob(req), local):
+            raise SystemExit(f"missing shared blob raster/{shared.atlas_blob(req)}")
+        logger.info("down raster/%s", shared.atlas_blob(req))
+
+
+def down_era5static():
+    from heat import shared
+
+    for name, blob in shared.ERA5_STATIC.items():
+        local = DATA / "raw" / "era5" / f"{name}.nc"
+        if local.exists():
+            continue
+        if not shared.download(blob, local):
+            raise SystemExit(f"missing shared blob raster/{blob}")
+
+
 def down_worldpop():
     """WorldPop 2026 total + age bands from the team-shared raster container (heat.shared)."""
     from heat import population, shared
@@ -139,9 +168,11 @@ def down_worldpop():
 
 if __name__ == "__main__":
     cmd, *groups = sys.argv[1:]
-    if cmd == "down" and "worldpop" in groups:
-        groups.remove("worldpop")
-        down_worldpop()
+    special = {"worldpop": down_worldpop, "atlas": down_atlas, "era5static": down_era5static}
+    if cmd == "down":
+        for g in [g for g in groups if g in special]:
+            groups.remove(g)
+            special[g]()
         if not groups:
             sys.exit(0)
     bad = [g for g in groups if g not in GROUPS]

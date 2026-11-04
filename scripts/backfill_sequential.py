@@ -6,7 +6,8 @@ CDS key used here is shared with other team monitoring (the EWDS flood runs), so
 most MAX_IN_FLIGHT requests open, polls only those, and holds new submissions around the 10:00 UTC
 Somalia flood-monitoring run. Resumable: state lives in data/state/era5_jobs.json.
 
-    caffeinate -i uv run python scripts/backfill_sequential.py      # (run inside `screen`)
+    uv run python scripts/backfill_sequential.py                     # laptop
+    run_task.py scripts/backfill_sequential.py --stage dev -- --persist-blob   # Databricks job
 
 Order: the heatwave baseline (Tmax/Tmin 1986-2005), the projection reference (1995-2014), the latest
 years, the current year, then the rest.
@@ -57,18 +58,18 @@ def name_for(v, y, months):
     return f"{v}_{y}m{months[-1]:02d}" if months else f"{v}_{y}"
 
 
-def done(v, y, months) -> bool:
-    path = fe.STORE / v / f"{v}_{y}.nc"
-    if not path.exists():
-        return False
-    if months is None:
-        return True
-    # the current year: done when the stored file reaches the last complete month
-    import xarray as xr
+REMOTE_DONE: set[str] = (
+    set()
+)  # era5c/{var}/{var}_{year}.nc names on the project blob (--persist-blob)
 
-    with xr.open_dataset(path) as ds:
-        last = str(ds.time.values[-1])[:7]
-    return last >= f"{y}-{months[-1]:02d}"
+
+def done(v, y, months) -> bool:
+    if months is not None:
+        # the current year: done once this month-tag's request has been compacted
+        job = fe.BOOK.jobs.get(name_for(v, y, months), {})
+        return bool(job.get("compacted"))
+    rel = f"era5c/{v}/{v}_{y}.nc"
+    return (fe.STORE / v / f"{v}_{y}.nc").exists() or rel in REMOTE_DONE
 
 
 def quiet_now() -> bool:
@@ -76,10 +77,28 @@ def quiet_now() -> bool:
     return QUIET_UTC[0] <= now <= QUIET_UTC[1]
 
 
-def main():
+def persist():
+    """Push compacted years and the job state to the project blob, and refresh REMOTE_DONE."""
+    import sync_blob
+
+    sync_blob.up(["era5c", "state"])
+    c = sync_blob.client()
+    REMOTE_DONE.clear()
+    REMOTE_DONE.update(k for k in sync_blob.remote_sizes(c, "era5c/") if k.endswith(".nc"))
+
+
+def main(persist_blob: bool = False):
+    if persist_blob:
+        import sync_blob
+
+        # resume: the job state and the cell index come from the project blob
+        sync_blob.down(["state", "static"])
+        persist()
     while True:
         fe.BOOK = JobBook(fe.BOOK.path)  # re-read state (fe.collect uses the module global)
         fe.collect()  # downloads finished jobs: shared copy -> compact -> delete raw
+        if persist_blob:
+            persist()
         book = fe.BOOK
         in_flight = [n for n, j in book.jobs.items() if j["status"] == "submitted"]
         todo = [(v, y, m) for v, y, m in queue() if not done(v, y, m)]
@@ -110,4 +129,12 @@ def main():
 
 
 if __name__ == "__main__":
-    main()
+    import argparse
+
+    ap = argparse.ArgumentParser()
+    ap.add_argument(
+        "--persist-blob",
+        action="store_true",
+        help="keep state and compacted years on the project blob (Databricks runs)",
+    )
+    main(ap.parse_args().persist_blob)
