@@ -125,6 +125,8 @@ def main(persist_blob: bool = False):
             book.save()
             in_flight.append(name)
             logger.info("submitted %s (%d still to go)", name, len(todo))
+            if persist_blob:
+                persist()  # save the request id at once, so a crash can't cause a duplicate request
         time.sleep(POLL_SECONDS)
 
 
