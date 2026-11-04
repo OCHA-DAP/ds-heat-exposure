@@ -18,7 +18,7 @@ import numpy as np
 import pandas as pd
 import xarray as xr
 
-from heat import era5, exposure, projections
+from heat import exposure, projections
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 logger = logging.getLogger("build_tables")
@@ -37,54 +37,17 @@ def obs_years():
     return sorted(int(p.stem.split("_")[1]) for p in (MET / "obs").glob("obs_*.nc"))
 
 
-def atlas_mat_by_year(c):
-    path = ATLAS / "era5_monthly_temperature.zip"
-    if not path.exists():
-        return {}
-    da = projections.open_atlas(path)
-    if float(da.max()) > 200:
-        da = da - 273.15
-    ann = da.groupby("time.year").mean("time")
-    pts = ann.sel(
-        lat=xr.DataArray(c.lat.values, dims="cell"),
-        lon=xr.DataArray(c.lon.values, dims="cell"),
-        method="nearest",
-    )
-    out = {}
-    for y in pts.year.values:
-        n = int(da.sel(time=str(int(y))).sizes["time"])
-        if n == 12:
-            out[int(y)] = pts.sel(year=y).values.astype(np.float32)
-    return out
-
-
-def daily_mat(year):
-    path = STORE / "tmean" / f"tmean_{year}.nc"
-    if not path.exists():
-        return None
-    da = era5.load_compact(STORE, "tmean", year)
-    if not str(da.time.values[-1])[:10].endswith("12-31"):
-        return None
-    return np.nanmean(da.values, axis=0)
-
-
 def main():
     c = xr.open_dataset(STORE / "cells.nc").load()
     pv = exposure.load(ROOT / "data" / "pop", c)
     OUT.mkdir(parents=True, exist_ok=True)
     rows, unit_rows = [], []
-    mats = atlas_mat_by_year(c)
     years = obs_years()
     obs_fields = {}
     meta_years = {}
     for y in years:
         ds = xr.open_dataset(MET / "obs" / f"obs_{y}.nc")
         f = {m: ds[m].values for m in ds.data_vars}
-        mat = mats.get(y)
-        if mat is None:
-            mat = daily_mat(y)
-        if mat is not None:
-            f["mat"] = mat
         obs_fields[y] = f
         meta_years[y] = {
             "n_days": int(ds.attrs["n_days"]),

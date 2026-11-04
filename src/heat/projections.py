@@ -8,7 +8,6 @@ interpolation from the Atlas grid to the ERA5 cell centres.
 
 from __future__ import annotations
 
-import io
 import logging
 import zipfile
 from pathlib import Path
@@ -97,14 +96,42 @@ def gwl_table(url: str = GWL_TABLE_URL) -> pd.DataFrame:
 
 
 def open_atlas(path: Path) -> xr.DataArray:
-    """Open an Atlas download (zip of one NetCDF, or a NetCDF) as (member?, time, lat, lon)."""
+    """Open an Atlas download as (member?, time, lat, lon), lazily.
+
+    The downloads are zips of 1-3 GB holding the series split over several NetCDFs; they are
+    extracted next to the zip once (data/raw/atlas/nc/<name>/) and opened lazily together.
+    """
+    path = Path(path)
     if zipfile.is_zipfile(path):
-        with zipfile.ZipFile(path) as z:
-            names = [n for n in z.namelist() if n.endswith(".nc")]
-            data = z.read(names[0])
-        ds = xr.open_dataset(io.BytesIO(data))
+        # one zip holds several NetCDFs split along time (e.g. 2015-2057, 2057-2100, 2100)
+        out_dir = path.parent / "nc" / path.stem
+        done = out_dir / ".complete"
+        if not done.exists():
+            out_dir.mkdir(parents=True, exist_ok=True)
+            with zipfile.ZipFile(path) as z:
+                for name in (n for n in z.namelist() if n.endswith(".nc")):
+                    target = out_dir / Path(name).name
+                    tmp = target.with_suffix(".part")
+                    with z.open(name) as src, open(tmp, "wb") as dst:
+                        while chunk := src.read(1 << 24):
+                            dst.write(chunk)
+                    tmp.replace(target)
+            done.touch()
+        files = sorted(out_dir.glob("*.nc"))
     else:
-        ds = xr.open_dataset(path)
+        files = [path]
+    if len(files) == 1:
+        ds = xr.open_dataset(files[0], chunks={})
+    else:
+        ds = xr.open_mfdataset(
+            files,
+            combine="by_coords",
+            chunks={},
+            data_vars="minimal",
+            coords="minimal",
+            compat="override",
+            join="outer",
+        )
     var = [v for v in ds.data_vars if ds[v].ndim >= 3][0]
     da = ds[var]
     ren = {}
@@ -129,7 +156,15 @@ def open_atlas(path: Path) -> xr.DataArray:
 
 
 def _member_key(label: str) -> str:
-    return label.replace("/", "_").strip()
+    """Atlas labels are INSTITUTION_MODEL_VARIANT; the IPCC table uses MODEL_VARIANT."""
+    parts = str(label).strip().split("_")
+    return "_".join(parts[1:]) if len(parts) >= 3 else str(label).strip()
+
+
+def table_row(table: pd.DataFrame, member: str) -> str | None:
+    key = _member_key(member).lower()
+    hits = table.index[table.index.str.lower() == key]
+    return hits[0] if len(hits) else None
 
 
 def monthly_clim(da: xr.DataArray, y0: int, y1: int) -> xr.DataArray:
@@ -138,22 +173,27 @@ def monthly_clim(da: xr.DataArray, y0: int, y1: int) -> xr.DataArray:
 
 
 def model_deltas(
-    hist: xr.DataArray, fut: xr.DataArray, table: pd.DataFrame, level: float, ratio: bool
+    hist: xr.DataArray,
+    fut: xr.DataArray,
+    table: pd.DataFrame,
+    level: float,
+    ratio: bool,
+    only: set | None = None,
 ) -> xr.DataArray:
-    """(member, month, lat, lon) change for each model that reaches `level` under SSP5-8.5."""
+    """(member, month, lat, lon) change for each model that reaches `level` under SSP5-8.5.
+
+    Window = the 20 years centred on the year in the IPCC table (cy-9 .. cy+10); reference
+    1995-2014. Temperatures as differences, humidity (ratio=True) as a ratio.
+    """
     out = []
     members = [m for m in fut.member.values if m in set(hist.member.values)]
+    if only is not None:
+        members = [m for m in members if m in only]
     for m in members:
-        key = _member_key(m)
-        row = table.index[table.index.str.lower() == key.lower()]
-        if len(row) == 0:
-            # Atlas labels can be "MODEL_rXiYpZfW" or just "MODEL"; match on the model name
-            row = table.index[
-                table.index.str.split("_").str[0].str.lower() == key.split("_")[0].lower()
-            ]
-        if len(row) == 0:
+        row = table_row(table, m)
+        if row is None:
             continue
-        cy = table.loc[row[0], GWL_COL[level]]
+        cy = table.loc[row, GWL_COL[level]]
         if pd.isna(cy):
             continue
         cy = int(cy)

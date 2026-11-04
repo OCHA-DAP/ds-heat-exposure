@@ -1,0 +1,82 @@
+name: Refresh data and deploy site
+
+# Daily: pull state from the dev blob, submit the current year's ERA5 requests once a month is
+# complete (the CDS queue can hold them for hours; job ids persist on blob, so a later run
+# collects them), recompute this year's metrics, rebuild PiN weights if the plans changed,
+# rebuild the exposure tables, then build the encrypted site and deploy it.
+# Pushes that touch the site only redeploy (no refresh).
+
+on:
+  # Enable once the ERA5 backfill is complete and its state is on blob (see README):
+  # schedule:
+  #   - cron: "40 9 * * *" # daily; after the HNRP mirror's 08:00 UTC site deploy
+  workflow_dispatch:
+    inputs:
+      refresh:
+        description: "Run the data refresh before deploying"
+        type: boolean
+        default: true
+  push:
+    branches: [main]
+    paths: ["site/**", "scripts/build_site.py", ".github/workflows/refresh-deploy.yml"]
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: heat-refresh-deploy
+  cancel-in-progress: false
+
+jobs:
+  refresh:
+    if: github.event_name == 'schedule' || (github.event_name == 'workflow_dispatch' && inputs.refresh)
+    runs-on: ubuntu-latest
+    timeout-minutes: 180
+    env:
+      DSCI_AZ_BLOB_DEV_SAS: ${{ secrets.DSCI_AZ_BLOB_DEV_SAS }}
+      DSCI_AZ_BLOB_DEV_SAS_WRITE: ${{ secrets.DSCI_AZ_BLOB_DEV_SAS_WRITE }}
+      CDSAPI_KEY: ${{ secrets.CDSAPI_KEY }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+      - name: Check secrets
+        run: |
+          test -n "$DSCI_AZ_BLOB_DEV_SAS_WRITE" || { echo "::error::DSCI_AZ_BLOB_DEV_SAS_WRITE org secret is not visible to this repo"; exit 1; }
+          test -n "$CDSAPI_KEY" || { echo "::error::CDSAPI_KEY repo secret is not set"; exit 1; }
+      - run: uv sync --frozen
+      - name: Refresh
+        run: uv run python scripts/refresh.py
+
+  deploy:
+    needs: refresh
+    if: always() && (needs.refresh.result == 'success' || needs.refresh.result == 'skipped')
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    env:
+      DSCI_AZ_BLOB_DEV_SAS: ${{ secrets.DSCI_AZ_BLOB_DEV_SAS }}
+      PAGE_PASSWORD: ${{ secrets.PAGE_PASSWORD }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+      - run: uv sync --frozen
+      - name: Fetch tables from blob
+        run: uv run python scripts/sync_blob.py down tables pop
+      - name: Build encrypted site
+        run: |
+          test -n "$PAGE_PASSWORD" || { echo "::error::PAGE_PASSWORD repo secret is not set"; exit 1; }
+          uv run python scripts/build_site.py --encrypt
+      - name: Refuse to publish plaintext data
+        run: |
+          if grep -rl 'window.HEAT=' site/build/ ; then
+            echo "site/build holds unencrypted dashboard data" >&2; exit 1
+          fi
+      - uses: actions/configure-pages@v5
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: site/build
+      - id: deployment
+        uses: actions/deploy-pages@v4

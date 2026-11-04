@@ -16,7 +16,7 @@ from pathlib import Path
 import numpy as np
 import xarray as xr
 
-from heat import era5, metrics
+from heat import era5, metrics, projections
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 logger = logging.getLogger("build_observed")
@@ -68,6 +68,38 @@ def build_p95():
     xr.Dataset(out).to_netcdf(OUT / "p95.nc")
 
 
+_ATLAS_MAT = {}
+
+
+def atlas_mat(c, year):
+    """Annual mean temperature from the C3S Atlas ERA5 monthly series (complete years only)."""
+    path = ROOT / "data" / "raw" / "atlas" / "era5_monthly_temperature.zip"
+    if not path.exists():
+        return None
+    if "da" not in _ATLAS_MAT:
+        da = projections.open_atlas(path)
+        _ATLAS_MAT["da"] = da
+        _ATLAS_MAT["iy"] = xr.DataArray(c.lat.values, dims="cell")
+        _ATLAS_MAT["ix"] = xr.DataArray(c.lon.values, dims="cell")
+    da = _ATLAS_MAT["da"].sel(time=str(year))
+    if da.sizes.get("time", 0) != 12:
+        return None
+    ann = da.mean("time")
+    vals = ann.sel(lat=_ATLAS_MAT["iy"], lon=_ATLAS_MAT["ix"], method="nearest").values
+    if np.nanmax(vals) > 200:  # kelvin
+        vals = vals - 273.15
+    return vals.astype(np.float32)
+
+
+def daily_mat(year):
+    if year not in available("tmean"):
+        return None
+    da = era5.load_compact(STORE, "tmean", year)
+    if not str(da.time.values[-1])[:10].endswith("12-31"):
+        return None
+    return np.nanmean(da.values, axis=0).astype(np.float32)
+
+
 def build_year(year, c, ps, p95):
     have = {v: year in available(v) for v in ("tmax", "tmin", "tdew")}
     if not all(have.values()):
@@ -91,6 +123,17 @@ def build_year(year, c, ps, p95):
         nmn = era5.load_compact(STORE, "tmin", year + 1).values[0]
         next_first = (nmx > p95["p95max"]) & (nmn > p95["p95min"])
     counts[metrics.HEATWAVE] = metrics.heatwave_days(hot, prev_last, next_first)
+    mat = daily_mat(year)
+    if mat is None:
+        mat = atlas_mat(c, year)
+    prev_file = OUT / "obs" / f"obs_{year}.nc"
+    if mat is None and prev_file.exists():
+        # keep the value from an earlier build (e.g. from the Atlas, which CI does not download)
+        with xr.open_dataset(prev_file) as old:
+            if "mat" in old:
+                mat = old["mat"].values.copy()
+    if mat is not None:
+        counts["mat"] = mat
     last_date = str(np.datetime_as_string(times[-1], unit="D"))
     ds = xr.Dataset(
         {k: ("cell", v) for k, v in counts.items()},

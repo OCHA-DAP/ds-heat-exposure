@@ -35,23 +35,34 @@ def cells():
 def build_deltas():
     c = cells()
     table = projections.gwl_table()
+    arrays = {}
+    for short, var in projections.DELTA_VARS.items():
+        arrays[short] = (
+            projections.open_atlas(ATLAS / f"cmip6_{var}_historical.zip"),
+            projections.open_atlas(ATLAS / f"cmip6_{var}_ssp5_8_5.zip"),
+        )
+    # same models for every variable, so temperature and humidity changes are consistent
+    common = None
+    for hist, fut in arrays.values():
+        ms = set(hist.member.values) & set(fut.member.values)
+        common = ms if common is None else common & ms
+    common = {m for m in common if projections.table_row(table, m) is not None}
+    logger.info("models with all four variables and a warming-level row: %d", len(common))
     for level in projections.LEVELS:
-        fields, nmod = {}, {}
-        for short, var in projections.DELTA_VARS.items():
-            hist = projections.open_atlas(ATLAS / f"cmip6_{var}_historical.zip")
-            fut = projections.open_atlas(ATLAS / f"cmip6_{var}_ssp5_8_5.zip")
-            d = projections.model_deltas(hist, fut, table, level, ratio=(short == "qratio"))
-            med = d.median("member")
+        fields, attrs = {}, {"level": level}
+        for short, (hist, fut) in arrays.items():
+            d = projections.model_deltas(
+                hist, fut, table, level, ratio=(short == "qratio"), only=common
+            )
+            med = d.median("member").compute()
             fields[short] = (
                 ("month", "cell"),
                 projections.to_cells(med, c.lat.values, c.lon.values),
             )
-            nmod[short] = int(d.sizes["member"])
-            logger.info("L=%s %s: %d models", level, short, nmod[short])
-        ds = xr.Dataset(
-            fields, attrs={"level": level, **{f"n_models_{k}": v for k, v in nmod.items()}}
-        )
-        ds.to_netcdf(OUT / f"deltas_{level}.nc")
+            attrs[f"n_models_{short}"] = int(d.sizes["member"])
+            attrs[f"models_{short}"] = ",".join(sorted(str(m) for m in d.member.values))
+            logger.info("L=%s %s: %d models", level, short, d.sizes["member"])
+        xr.Dataset(fields, attrs=attrs).to_netcdf(OUT / f"deltas_{level}.nc")
 
 
 def atlas_era5_mat(c, years) -> np.ndarray:
