@@ -10,7 +10,8 @@ Groups (paths relative to data/):
   era5c     era5c/**                         the whole compact ERA5 archive (~20 GB; backfill only)
   metrics   metrics/obs/*.nc, metrics/proj/*.nc
   pop       pop/** (grids, plans.csv, units, weights)
-  worldpop  raw/worldpop/*.tif               1 km WorldPop 2026 (~2.2 GB; needed to rebuild plans)
+  worldpop  raw/worldpop/*.tif               1 km WorldPop 2026 (~2.2 GB; needed to rebuild plans),
+                                             DOWN only, from the team-shared raster container
   tables    tables/*
 
 Uploads only send files whose size differs from the blob copy; downloads likewise.
@@ -54,7 +55,6 @@ GROUPS = {
     "era5c": ["era5c/**/*.nc"],
     "metrics": ["metrics/obs/*.nc", "metrics/proj/*.nc"],
     "pop": ["pop/*.nc", "pop/*.csv", "pop/units/*.parquet", "pop/weights/*.parquet"],
-    "worldpop": ["raw/worldpop/*.tif"],
     "tables": ["tables/*"],
 }
 
@@ -116,8 +116,34 @@ def down(groups):
     logger.info("downloaded %d files", n)
 
 
+def down_worldpop():
+    """WorldPop 2026 total + age bands from the team-shared raster container (heat.shared)."""
+    from heat import population, shared
+
+    wp = DATA / "raw" / "worldpop"
+    blobs = {
+        population.wp_path(
+            wp, "total"
+        ): "worldpop/pop_count/global_pop_2026_CN_1km_R2025A_UA_v1.tif"
+    }
+    for g in ["00", *population.AGE_65]:
+        f = population.wp_path(wp, g)
+        blobs[f] = shared.worldpop_age_blob(f.name)
+    for local, blob in blobs.items():
+        if local.exists() and local.stat().st_size > 0:
+            continue
+        if not shared.download(blob, local):
+            raise SystemExit(f"missing shared blob raster/{blob}")
+        logger.info("down raster/%s", blob)
+
+
 if __name__ == "__main__":
     cmd, *groups = sys.argv[1:]
+    if cmd == "down" and "worldpop" in groups:
+        groups.remove("worldpop")
+        down_worldpop()
+        if not groups:
+            sys.exit(0)
     bad = [g for g in groups if g not in GROUPS]
     if cmd not in ("up", "down") or not groups or bad:
         sys.exit(__doc__)

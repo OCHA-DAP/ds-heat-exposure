@@ -3,13 +3,15 @@
     uv run python scripts/fetch_atlas.py submit
     uv run python scripts/fetch_atlas.py collect
 
-Files land in data/raw/atlas/. They are small pre-computed files (monthly, Atlas grid).
+Files land in data/raw/atlas/ (1-3 GB zips, monthly, 1° for CMIP6, 0.25° for ERA5) and are copied
+untouched to the team-shared dev raster container under c3s_atlas/raw/ (heat.shared).
 """
 
 import logging
 import sys
 from pathlib import Path
 
+from heat import shared
 from heat.cds_jobs import JobBook
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
@@ -76,12 +78,27 @@ def requests():
         )
 
 
+def share():
+    """Copy finished downloads, untouched, to the team-shared dev raster container."""
+    for name, job in BOOK.jobs.items():
+        if job["status"] != "downloaded" or job.get("shared"):
+            continue
+        path = Path(job["target"])
+        if not path.exists():
+            continue
+        blob = shared.atlas_blob(job["request"])
+        shared.upload(path, blob, {"dataset": job["dataset"], "request": job["request"]})
+        job["shared"] = blob
+        BOOK.save()
+
+
 def main(cmd):
     if cmd == "submit":
         for name, req in requests():
             BOOK.submit(name, "multi-origin-c3s-atlas", req, RAW / f"{name}.zip")
     elif cmd == "collect":
         BOOK.collect()
+        share()
     print(BOOK.status_counts())
 
 

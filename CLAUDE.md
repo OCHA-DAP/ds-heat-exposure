@@ -15,6 +15,10 @@ Read `docs/DESIGN.md` first: it records the method and every user decision.
 - Plain language on the site; no table/column names or raw codes in visible text.
 
 ## Data plumbing
+- Everything downloaded from outside is also copied, untouched, to the team-shared DEV `raster`
+  container (`heat/shared.py`: `era5/daily/raw/`, `era5/static/raw/`, `era5/monthly/raw/`,
+  `c3s_atlas/raw/`, `worldpop/age_structures/`). KB: `pipelines/heat-exposure.md`. Keep those paths
+  stable — other projects read them. The backfill takes a year from there before asking CDS.
 - CDS: `heat.cds_jobs.JobBook` keeps request ids in `data/state/*.json`; `collect` is resumable.
   `CDSAPI_URL` on the team machines points at EWDS — the code sets the CDS URL explicitly.
 - ERA5 compact store `data/era5c/{var}/{var}_{year}.nc`: int16 hundredths of °C on land/populated
