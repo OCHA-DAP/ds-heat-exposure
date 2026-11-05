@@ -65,6 +65,7 @@ def build_p95():
             res[sl] = np.nanpercentile(stack, 95, axis=0)
             logger.info("%s p95 cells %d-%d", var, sl.start, sl.stop)
         out[f"p95{var[1:]}"] = ("cell", res)
+    OUT.mkdir(parents=True, exist_ok=True)  # netCDF reports a missing folder as "Permission denied"
     xr.Dataset(out).to_netcdf(OUT / "p95.nc")
 
 

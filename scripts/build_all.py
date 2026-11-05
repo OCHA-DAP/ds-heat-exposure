@@ -27,6 +27,7 @@ def main():
     run("scripts/sync_blob.py", "down", "state", "static", "era5c", "pop", "era5static", "atlas")
     if not (ROOT / "data" / "metrics" / "p95.nc").exists():
         run("scripts/build_observed.py", "p95")
+        run("scripts/sync_blob.py", "up", "static")  # a retry then skips the 6-minute p95
     run("scripts/build_observed.py", "years")
     run("scripts/build_projections.py", "deltas")
     run("scripts/build_projections.py", "shift")

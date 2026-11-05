@@ -48,6 +48,7 @@ def build_deltas():
         common = ms if common is None else common & ms
     common = {m for m in common if projections.table_row(table, m) is not None}
     logger.info("models with all four variables and a warming-level row: %d", len(common))
+    OUT.mkdir(parents=True, exist_ok=True)
     for level in projections.LEVELS:
         fields, attrs = {}, {"level": level}
         for short, (hist, fut) in arrays.items():
