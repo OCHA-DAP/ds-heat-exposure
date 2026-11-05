@@ -82,7 +82,8 @@ def atlas_mat(c, year):
         _ATLAS_MAT["da"] = da
         _ATLAS_MAT["iy"] = xr.DataArray(c.lat.values, dims="cell")
         _ATLAS_MAT["ix"] = xr.DataArray(c.lon.values, dims="cell")
-    da = _ATLAS_MAT["da"].sel(time=str(year))
+    da = _ATLAS_MAT["da"]
+    da = da.isel(time=(da.time.dt.year == year).values)  # .sel(time="2026") raises if absent
     if da.sizes.get("time", 0) != 12:
         return None
     ann = da.mean("time")
