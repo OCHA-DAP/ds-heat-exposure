@@ -186,6 +186,7 @@ def model_deltas(
     1995-2014. Temperatures as differences, humidity (ratio=True) as a ratio.
     """
     out = []
+    last_year = int(fut.time.dt.year.max())
     members = [m for m in fut.member.values if m in set(hist.member.values)]
     if only is not None:
         members = [m for m in members if m in only]
@@ -194,7 +195,8 @@ def model_deltas(
         if row is None:
             continue
         cy = table.loc[row, GWL_COL[level]]
-        if pd.isna(cy):
+        # the table writes 9999 for a run that never reaches the level
+        if pd.isna(cy) or int(cy) + 10 > last_year:
             continue
         cy = int(cy)
         series = xr.concat([hist.sel(member=m), fut.sel(member=m)], dim="time")
@@ -207,26 +209,32 @@ def model_deltas(
     return xr.concat(out, dim="member")
 
 
+def _xyz(lat: np.ndarray, lon: np.ndarray) -> np.ndarray:
+    la, lo = np.radians(lat), np.radians(lon)
+    return np.c_[np.cos(la) * np.cos(lo), np.cos(la) * np.sin(lo), np.sin(la)]
+
+
 def to_cells(field: xr.DataArray, lat: np.ndarray, lon: np.ndarray) -> np.ndarray:
-    """Bilinear interpolation of (month, lat, lon) to cell points, with longitude wrap."""
-    f = field.sortby("lat").sortby("lon")
+    """Bilinear interpolation of (month, lat, lon) to cell points, with longitude wrap.
+
+    Cells that interpolation leaves empty (next to a grid point the model leaves blank, e.g.
+    along coasts) take the value of the nearest grid point that has data in every month.
+    """
+    from scipy.spatial import cKDTree
+
+    f = field.transpose("month", "lat", "lon").sortby("lat").sortby("lon")
+    grid = f
     # pad longitude for wrap-around
     left = f.isel(lon=-1).assign_coords(lon=f.lon[-1].values - 360)
     right = f.isel(lon=0).assign_coords(lon=f.lon[0].values + 360)
     f = xr.concat([left, f, right], dim="lon")
     pts = f.interp(lat=xr.DataArray(lat, dims="cell"), lon=xr.DataArray(lon, dims="cell"))
-    # cells outside the model land mask (NaN) take the nearest valid value
-    if np.isnan(pts.values).any():
-        near = (
-            f.ffill("lon")
-            .bfill("lon")
-            .ffill("lat")
-            .bfill("lat")
-            .interp(
-                lat=xr.DataArray(lat, dims="cell"),
-                lon=xr.DataArray(lon, dims="cell"),
-                method="nearest",
-            )
-        )
-        pts = pts.fillna(near)
-    return pts.transpose("month", "cell").values.astype(np.float32)
+    vals = pts.transpose("month", "cell").values.astype(np.float32)
+    bad = np.isnan(vals).any(axis=0)
+    if bad.any():
+        g = grid.values  # (month, lat, lon)
+        ok = ~np.isnan(g).any(axis=0)
+        glat, glon = np.meshgrid(grid.lat.values, grid.lon.values, indexing="ij")
+        _, idx = cKDTree(_xyz(glat[ok], glon[ok])).query(_xyz(lat[bad], lon[bad]))
+        vals[:, bad] = g[:, ok][:, idx]
+    return vals

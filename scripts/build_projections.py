@@ -82,7 +82,9 @@ def atlas_era5_mat(c, years) -> np.ndarray:
 
 def build_shift():
     c = cells()
-    ps = xr.open_dataarray(OUT / "ps_clim.nc").values
+    import build_observed  # same folder; makes ps_clim.nc if this run doesn't have it yet
+
+    ps = build_observed.ps_clim(c)
     p95 = xr.open_dataset(OUT / "p95.nc")
     p95max, p95min = p95.p95max.values, p95.p95min.values
     deltas = {L: xr.open_dataset(OUT / f"deltas_{L}.nc").load() for L in projections.LEVELS}

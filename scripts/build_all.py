@@ -24,7 +24,10 @@ ROOT = Path(__file__).resolve().parent.parent
 
 STEPS = {
     "p95": [("scripts/build_observed.py", "p95"), ("scripts/sync_blob.py", "up", "static")],
-    "years": [("scripts/build_observed.py", "years"), ("scripts/sync_blob.py", "up", "metrics")],
+    "years": [
+        ("scripts/build_observed.py", "years"),
+        ("scripts/sync_blob.py", "up", "static", "metrics"),  # static: ps_clim.nc
+    ],
     "deltas": [("scripts/build_projections.py", "deltas"), ("scripts/sync_blob.py", "up", "static")],
     "shift": [("scripts/build_projections.py", "shift"), ("scripts/sync_blob.py", "up", "metrics")],
     "check": [("scripts/build_projections.py", "check")],
