@@ -1,9 +1,13 @@
 """Team-shared copies of the third-party data this project downloads, in the dev `raster` container,
-so other projects reuse them instead of downloading again (KB: infrastructure/datasets/era5-daily.md).
+so other projects reuse them instead of downloading again (KB: pipelines/heat-exposure.md).
 
-  era5/daily/raw/{variable}_{statistic}/era5_daily_{variable}_{statistic}_{YYYY}.nc
-        CDS derived-era5-single-levels-daily-statistics, untouched NetCDF, one file per year,
-        0.25°, 75N-60S, 1-hourly input, UTC days. The current year is overwritten each month.
+  era5/daily/processed/{variable}_{statistic}/era5_daily_{variable}_{statistic}_{YYYY}.nc
+        ERA5 UTC daily max/min/mean computed here from ARCO-ERA5 hourly data (heat.arco): one
+        file per year, float32 K, 0.25°, 75N-60S, the same grid and layout as the CDS
+        derived-era5-single-levels-daily-statistics files. The current year is overwritten each
+        month.
+  era5/daily/raw/...   one untouched CDS daily-statistics file (2m_temperature_daily_maximum
+        1986), from before the switch to ARCO-ERA5 (Nov 2026)
   era5/static/raw/era5_land_sea_mask.nc
   era5/monthly/raw/era5_surface_pressure_monthly_2015-2024.nc
   c3s_atlas/raw/{origin}_{variable}_{experiment}_{bias_adjustment}_75N-60S.zip
@@ -29,9 +33,9 @@ STAGE = "dev"
 PRODUCER = "OCHA-DAP/ds-heat-exposure"
 
 
-def era5_daily_blob(cds_variable: str, statistic: str, year: int) -> str:
-    folder = f"{cds_variable}_{statistic}"
-    return f"era5/daily/raw/{folder}/era5_daily_{folder}_{year}.nc"
+def era5_daily_blob(variable: str, statistic: str, year: int) -> str:
+    folder = f"{variable}_{statistic}"
+    return f"era5/daily/processed/{folder}/era5_daily_{folder}_{year}.nc"
 
 
 ERA5_STATIC = {

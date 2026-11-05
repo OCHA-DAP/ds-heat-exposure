@@ -19,14 +19,16 @@ Method, data sources and decisions: [docs/DESIGN.md](docs/DESIGN.md).
 | Step | Command | Output |
 |---|---|---|
 | C3S Atlas (CMIP6 monthly changes, ERA5 observed counts) | `uv run python scripts/fetch_atlas.py submit` then `collect` | `data/raw/atlas/` |
-| ERA5 daily backfill + build (Databricks job `heat_exposure_backfill`, id 48618764487730; at most 2 CDS requests in flight, resumes from blob) | `databricks bundle deploy -t prod -p DEFAULT && databricks bundle run heat_exposure_backfill -t prod -p DEFAULT --no-wait` (laptop alternative: `uv run python scripts/backfill_sequential.py`, then `scripts/build_all.py`) | `data/era5c/` on the project blob + shared raw copies; metrics and tables on blob |
+| ERA5 daily backfill + build (Databricks job `heat_exposure_backfill`, id 48618764487730; daily statistics computed from ARCO-ERA5 hourly data, ~1.4 TB read, resumes from blob) | `databricks bundle deploy -t prod -p DEFAULT && databricks bundle run heat_exposure_backfill -t prod -p DEFAULT --no-wait` (check one month locally: `uv run python scripts/fetch_arco.py year 1986 --months 1 --store /tmp/era5c`) | `data/era5c/` on the project blob + full-grid daily files in the shared container; metrics and tables on blob |
 | Population grids + PiN units/weights | `uv run python scripts/build_population.py grids` / `plans` | `data/pop/` |
 | Observed metrics | `uv run python scripts/build_observed.py p95` then `years` | `data/metrics/obs/` |
 | Projections at warming levels | `uv run python scripts/build_projections.py` | `data/metrics/proj/` |
 | Exposure tables + site | `uv run python scripts/build_site.py` | `site/build/` |
 
-`data/` is git-ignored. Copernicus credentials: `CDSAPI_KEY` (the same key works for CDS and EWDS; the
-URL is set in code because `CDSAPI_URL` points at EWDS on the team machines).
+`data/` is git-ignored. ERA5 daily data need no credentials (ARCO-ERA5 is public). The one-off CDS
+downloads (C3S Atlas, ERA5 static fields; all already in the shared container) use `CDSAPI_KEY` (the
+same key works for CDS and EWDS; the URL is set in code because `CDSAPI_URL` points at EWDS on the
+team machines).
 
 Licences: ERA5 and the C3S Atlas are Copernicus (CC-BY); WorldPop CC-BY 4.0; HNRP data via the
 [HNRP mirror](https://ocha-dap.github.io/ds-hnrp-mirror/) (OCHA HPC / HDX). The CDS CMIP6 heat-stress

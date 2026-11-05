@@ -4,10 +4,10 @@
     uv run python scripts/sync_blob.py down GROUP [GROUP ...]
 
 Groups (paths relative to data/):
-  state     state/*.json                     CDS job ids (the refresh is resumable across runs)
+  state     state/*.json                     plan fingerprint; CDS job ids of the one-off downloads
   static    era5c/cells.nc, metrics/p95.nc, metrics/ps_clim.nc, metrics/deltas_*.nc
   current   era5c/*/*_{this year and last}.nc  daily store needed for the monthly refresh
-  era5c     era5c/**                         the whole compact ERA5 archive (~20 GB; backfill only)
+  era5c     era5c/**                         the whole compact ERA5 archive (~19 GB; backfill/build)
   metrics   metrics/obs/*.nc, metrics/proj/*.nc
   pop       pop/** (grids, plans.csv, units, weights)
   worldpop  raw/worldpop/*.tif               1 km WorldPop 2026 (~2.2 GB; needed to rebuild plans),

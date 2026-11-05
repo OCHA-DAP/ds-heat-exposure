@@ -1,9 +1,8 @@
 name: Refresh data and deploy site
 
-# Daily: pull state from the dev blob, submit the current year's ERA5 requests once a month is
-# complete (the CDS queue can hold them for hours; job ids persist on blob, so a later run
-# collects them), recompute this year's metrics, rebuild PiN weights if the plans changed,
-# rebuild the exposure tables, then build the encrypted site and deploy it.
+# Daily: pull state from the dev blob, rebuild this year's ERA5 daily store from ARCO-ERA5 once a
+# new month is complete there, recompute this year's metrics, rebuild PiN weights if the plans
+# changed, rebuild the exposure tables, then build the encrypted site and deploy it.
 # Pushes that touch the site only redeploy (no refresh).
 
 on:
@@ -37,14 +36,12 @@ jobs:
     env:
       DSCI_AZ_BLOB_DEV_SAS: ${{ secrets.DSCI_AZ_BLOB_DEV_SAS }}
       DSCI_AZ_BLOB_DEV_SAS_WRITE: ${{ secrets.DSCI_AZ_BLOB_DEV_SAS_WRITE }}
-      CDSAPI_KEY: ${{ secrets.CDSAPI_KEY }}
     steps:
       - uses: actions/checkout@v4
       - uses: astral-sh/setup-uv@v5
       - name: Check secrets
         run: |
           test -n "$DSCI_AZ_BLOB_DEV_SAS_WRITE" || { echo "::error::DSCI_AZ_BLOB_DEV_SAS_WRITE org secret is not visible to this repo"; exit 1; }
-          test -n "$CDSAPI_KEY" || { echo "::error::CDSAPI_KEY repo secret is not set"; exit 1; }
       - run: uv sync --frozen
       - name: Refresh
         run: uv run python scripts/refresh.py

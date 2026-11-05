@@ -15,15 +15,18 @@ Read `docs/DESIGN.md` first: it records the method and every user decision.
 - Plain language on the site; no table/column names or raw codes in visible text.
 
 ## Data plumbing
-- The ERA5 backfill and the build run on Databricks (`databricks.yml`, job `heat_exposure_backfill`,
-  id 48618764487730, single-node Job Compute, team CDS key injected by the policy). Prod deploys are run
-  by the user (`!`); state and compacted years live on the project blob so a retry resumes.
-- Copernicus: never more than 2 requests in flight (service protection measures; batch submission can
-  get the account suspended).
-- Everything downloaded from outside is also copied, untouched, to the team-shared DEV `raster`
-  container (`heat/shared.py`: `era5/daily/raw/`, `era5/static/raw/`, `era5/monthly/raw/`,
-  `c3s_atlas/raw/`, `worldpop/age_structures/`). KB: `pipelines/heat-exposure.md`. Keep those paths
-  stable — other projects read them. The backfill takes a year from there before asking CDS.
+- ERA5 daily data come from ARCO-ERA5 hourly (public Google Cloud zarr; `heat/arco.py`,
+  `scripts/fetch_arco.py`), not the CDS: the CDS queue held single requests 8–20 h (user agreed
+  2026-11-05). UTC-day max/min/mean of the 24 hours = the CDS daily-statistics product.
+- The backfill and the build run on Databricks (`databricks.yml`, job `heat_exposure_backfill`,
+  id 48618764487730, single-node Job Compute). Prod deploys are run by the user (`!`); compacted
+  years go to the project blob as they finish, so a retry resumes. ~1.4 TB read: never on the laptop.
+- Copernicus (still used for the one-off Atlas and static downloads): never more than 2 requests in
+  flight (service protection measures; the key is shared with the team's flood monitoring).
+- Shared copies in the team DEV `raster` container (`heat/shared.py`): ERA5 daily full-grid files
+  `era5/daily/processed/` (ours, from ARCO), untouched downloads in `era5/static/raw/`,
+  `era5/monthly/raw/`, `c3s_atlas/raw/`, `worldpop/age_structures/`. KB: `pipelines/heat-exposure.md`.
+  Keep those paths stable — other projects read them.
 - CDS: `heat.cds_jobs.JobBook` keeps request ids in `data/state/*.json`; `collect` is resumable.
   `CDSAPI_URL` on the team machines points at EWDS — the code sets the CDS URL explicitly.
 - ERA5 compact store `data/era5c/{var}/{var}_{year}.nc`: int16 hundredths of °C on land/populated

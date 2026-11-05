@@ -58,10 +58,20 @@ open data with a method we can run every month.
   or where the annual mean is ≥ 29 °C.
 - **Mean days per person.**
 
+### ERA5 daily data: from ARCO-ERA5, not the CDS (decision 2026-11-05)
+Daily max, min and mean 2 m temperature and daily mean 2 m dewpoint are computed from ERA5 hourly
+fields in ARCO-ERA5, Google's public analysis-ready copy of ERA5 (Google Cloud public datasets, no
+login; final ERA5, then ERA5T to about a week ago). A UTC day is the 24 values 00–23 UTC, which is what
+the CDS `derived-era5-single-levels-daily-statistics` dataset computes. Checked against our one CDS
+download (1986 daily maximum): every cell of January 1986 within 0.01 °C (rounding). The CDS route
+was dropped because, under its service-protection limits (at most two requests in flight), the queue
+held single requests 8–20 hours, so the backfill would have taken weeks. The land-sea mask and the
+surface-pressure climatology are still one-off CDS downloads.
+
 ### Refresh cadence
 | Input | Cadence |
 |---|---|
-| ERA5 daily (CDS) | monthly, ~6 days behind real time; the current year is shown as year-to-date |
+| ERA5 daily (ARCO-ERA5) | monthly, ~6 days behind real time; the current year is shown as year-to-date |
 | People in need | daily mirror; we rebuild weekly |
 | Current warming level | yearly (Indicators of Global Climate Change) |
 | WorldPop | yearly release |

@@ -19,7 +19,7 @@ Databricks-specific glue:
 
 Usage (as the ``spark_python_task`` parameters):
 
-    run_task.py scripts/dbx_backfill.py --stage dev
+    run_task.py scripts/fetch_arco.py --stage dev -- backfill --persist-blob
     run_task.py scripts/build_all.py --stage dev
 """
 
@@ -133,15 +133,18 @@ def main(argv=None):
     _resolve_secrets(env, args.secret)
     _resolve_secrets(env, args.optional_secret, optional=True)
     # this repo's package lives in src/heat (imported as `heat`)
-    env["PYTHONPATH"] = os.pathsep.join([os.path.join(local_root, "src"), local_root,
-                                         env.get("PYTHONPATH", "")])
+    env["PYTHONPATH"] = os.pathsep.join(
+        [os.path.join(local_root, "src"), local_root, env.get("PYTHONPATH", "")]
+    )
     # Unbuffered so the script's prints interleave correctly in the run log.
     env["PYTHONUNBUFFERED"] = "1"
 
     cmd = [sys.executable, os.path.join(local_root, args.script), *args.script_args]
     shown = {k: env[k] for k in ["STAGE", *[kv.partition("=")[0] for kv in args.env]]}
-    print(f"[run_task] script={args.script} env={shown} "
-          f"secrets={args.secret + args.optional_secret} args={args.script_args}")
+    print(
+        f"[run_task] script={args.script} env={shown} "
+        f"secrets={args.secret + args.optional_secret} args={args.script_args}"
+    )
     rc = subprocess.run(cmd, cwd=local_root, env=env, check=False).returncode
     # Databricks treats a top-level SystemExit (even code 0) as a task failure;
     # raise only on non-zero and let success return naturally.

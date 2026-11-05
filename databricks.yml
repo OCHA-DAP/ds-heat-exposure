@@ -3,17 +3,18 @@
 # One job, run on demand (no schedule):
 #
 #   heat_exposure_backfill
-#     era5_backfill   scripts/backfill_sequential.py --persist-blob
-#                     ERA5 daily 1986-present from CDS, at most 2 requests in flight (Copernicus asks
-#                     for sequential submission). Every download is copied untouched to the shared dev
-#                     raster container, compacted, and pushed with the job state to the project blob,
-#                     so a restarted run resumes where it stopped. Runs for days.
+#     era5_backfill   scripts/fetch_arco.py backfill --persist-blob
+#                     ERA5 daily statistics 1986-present computed from ARCO-ERA5 hourly data (Google
+#                     Cloud public dataset; no login, no queue; ~1.4 TB read, a few hours). Each year
+#                     goes to the project blob as soon as it is done (a retried run resumes) and its
+#                     full-grid daily files to the shared dev raster container.
 #     build_all       scripts/build_all.py (after the backfill)
 #                     percentiles, observed metrics, warming-level projections, cross-check, exposure
 #                     tables -> project blob. The GitHub Pages workflow then builds and deploys the site.
 #
-# Credentials are not in this file: the Job Compute (single node) policy injects DSCI_AZ_* and the team
-# CDSAPI_KEY (and fixes CDSAPI_URL to the CDS) from the dsci scope.
+# Credentials are not in this file: the Job Compute (single node) policy injects DSCI_AZ_* from the
+# dsci scope. No Copernicus key is needed any more (Nov 2026: the CDS queue held single requests
+# 8-20 h, so the daily data moved to ARCO-ERA5).
 #
 #   databricks bundle validate -t prod -p DEFAULT
 #   databricks bundle deploy   -t prod -p DEFAULT
@@ -40,6 +41,7 @@ variables:
 .libs: &libs
   - pypi: { package: "ocha-stratus>=0.1.9" }
   - pypi: { package: "ecmwf-datastores-client" }
+  - pypi: { package: "zarr>=3.1" }
   - pypi: { package: "xarray" }
   - pypi: { package: "netCDF4" }
   - pypi: { package: "h5netcdf" }
@@ -55,7 +57,7 @@ resources:
   jobs:
     heat_exposure_backfill:
       name: Heat exposure — ERA5 backfill and build
-      description: "ERA5 daily backfill (sequential CDS requests) and the heat-exposure build for [ds-heat-exposure](https://github.com/OCHA-DAP/ds-heat-exposure)"
+      description: "ERA5 daily backfill (from ARCO-ERA5) and the heat-exposure build for [ds-heat-exposure](https://github.com/OCHA-DAP/ds-heat-exposure)"
       git_source: *git_source
       tags:
         databricks: job
@@ -65,16 +67,11 @@ resources:
         - group_name: dsci
           level: CAN_MANAGE
       max_concurrent_runs: 1
-      timeout_seconds: 518400 # 6 days
+      timeout_seconds: 172800 # 2 days
       parameters:
         - name: stage
           default: ${var.stage}
       job_clusters:
-        - job_cluster_key: small
-          new_cluster:
-            policy_id: "0017962FF5D1E3B9"
-            apply_policy_default_values: true
-            node_type_id: Standard_E4ads_v5
         - job_cluster_key: large
           new_cluster:
             policy_id: "0017962FF5D1E3B9"
@@ -82,19 +79,22 @@ resources:
             node_type_id: Standard_E8ads_v5
       tasks:
         - task_key: era5_backfill
-          job_cluster_key: small
+          job_cluster_key: large
           libraries: *libs
-          max_retries: 3
-          min_retry_interval_millis: 600000
+          max_retries: 2
+          min_retry_interval_millis: 300000
           spark_python_task:
             python_file: databricks/run_task.py
             source: GIT
             parameters:
-              - "scripts/backfill_sequential.py"
+              - "scripts/fetch_arco.py"
               - "--stage"
               - "{{job.parameters.stage}}"
               - "--"
+              - "backfill"
               - "--persist-blob"
+              - "--workers"
+              - "16"
         - task_key: build_all
           depends_on:
             - task_key: era5_backfill

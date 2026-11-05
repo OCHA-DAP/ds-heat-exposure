@@ -1,15 +1,14 @@
-"""ERA5 daily statistics: request specs, download, and compaction to land cells.
+"""ERA5 on the project's cells: the compact store, the cell index, and the static-field requests.
 
-Compact store (data/era5c/): one NetCDF per variable-year with dims (time, cell), int16 hundredths of
-a degree Celsius, only the land cells of the grid (land-sea mask >= LSM_MIN). `cells.nc` holds the
-lat/lon of each cell. This is ~180 MB per variable-year instead of ~1.1 GB, so the whole
-1986-present archive fits on a laptop and on blob.
+Compact store (data/era5c/): one NetCDF per variable-year with dims (time, cell), int16 hundredths
+of a degree Celsius, only the land/populated cells of the 0.25° grid 75N-60S (`cells.nc` holds the
+lat/lon and grid indices of each cell). ~115 MB per variable-year instead of ~1.1 GB. The daily
+values come from ARCO-ERA5 hourly data (`heat.arco`); the land-sea mask and the surface-pressure
+climatology are one-off CDS downloads (`scripts/fetch_era5.py`).
 """
 
 from __future__ import annotations
 
-import calendar
-import datetime as dt
 import logging
 from pathlib import Path
 
@@ -20,9 +19,8 @@ logger = logging.getLogger(__name__)
 
 AREA = [75, -180, -60, 180]  # N, W, S, E
 LSM_MIN = 0.1
-DAILY_DATASET = "derived-era5-single-levels-daily-statistics"
 
-# short name -> (CDS variable, daily statistic)
+# short name -> (ERA5 variable, daily statistic): UTC days from the 24 hourly values
 VARS = {
     "tmax": ("2m_temperature", "daily_maximum"),
     "tmin": ("2m_temperature", "daily_minimum"),
@@ -31,22 +29,6 @@ VARS = {
 }
 SCALE = 100.0  # int16 = round((K - 273.15) * SCALE)
 FILL = np.int16(-32768)
-
-
-def daily_request(var: str, year: int, months: list[int] | None = None) -> dict:
-    cds_var, stat = VARS[var]
-    months = months or list(range(1, 13))
-    return {
-        "product_type": "reanalysis",
-        "variable": [cds_var],
-        "year": str(year),
-        "month": [f"{m:02d}" for m in months],
-        "day": [f"{d:02d}" for d in range(1, 32)],
-        "daily_statistic": stat,
-        "time_zone": "utc+00:00",
-        "frequency": "1_hourly",
-        "area": AREA,
-    }
 
 
 def lsm_request() -> dict:
@@ -73,17 +55,6 @@ def ps_clim_request() -> dict:
         "data_format": "netcdf",
         "area": AREA,
     }
-
-
-def complete_months(year: int, today: dt.date | None = None, lag_days: int = 7) -> list[int]:
-    """Months of `year` whose last day is at least `lag_days` before today (ERA5 latency)."""
-    today = today or dt.date.today()
-    out = []
-    for m in range(1, 13):
-        last = dt.date(year, m, calendar.monthrange(year, m)[1])
-        if (today - last).days >= lag_days:
-            out.append(m)
-    return out
 
 
 def _main_var(ds: xr.Dataset) -> xr.DataArray:
@@ -135,27 +106,20 @@ def build_cells(lsm_path: Path, out_path: Path, pop_grid_path: Path) -> xr.Datas
     return cells
 
 
-def compact(raw_path: Path, cells: xr.Dataset, out_path: Path, var: str, year: int):
-    """Raw CDS NetCDF (time, lat, lon) in kelvin -> int16 (time, cell) hundredths of °C."""
-    ds = xr.open_dataset(raw_path)
-    da = _std_coords(_main_var(ds)).sortby("lat", ascending=False)
-    assert da.sizes["lat"] == cells.attrs["nlat"] and da.sizes["lon"] == cells.attrs["nlon"], (
-        da.sizes,
-        cells.attrs,
-    )
-    iy = cells.iy.values
-    ix = cells.ix.values
-    n_t = da.sizes["time"]
-    out = np.empty((n_t, iy.size), dtype=np.int16)
-    for t0 in range(0, n_t, 31):  # month-sized slabs keep memory small
-        block = da.isel(time=slice(t0, t0 + 31)).values  # (t, lat, lon) float32 K
-        vals = (block[:, iy, ix] - 273.15) * SCALE
-        bad = ~np.isfinite(vals)
-        vals = np.clip(np.round(np.nan_to_num(vals, nan=0.0)), -32767, 32767).astype(np.int16)
-        vals[bad] = FILL
-        out[t0 : t0 + block.shape[0]] = vals
-    times = da.time.values
-    ds.close()
+def write_compact(
+    out_path: Path,
+    var: str,
+    year: int,
+    times: np.ndarray,
+    kelvin: np.ndarray,
+    source: str,
+    attrs: dict | None = None,
+):
+    """Daily values (time, cell) in kelvin -> int16 hundredths of °C, the compact store format."""
+    vals = (np.asarray(kelvin, dtype=np.float64) - 273.15) * SCALE
+    bad = ~np.isfinite(vals)
+    out = np.clip(np.round(np.nan_to_num(vals, nan=0.0)), -32767, 32767).astype(np.int16)
+    out[bad] = FILL
     res = xr.Dataset(
         {
             var: (
@@ -165,11 +129,13 @@ def compact(raw_path: Path, cells: xr.Dataset, out_path: Path, var: str, year: i
             )
         },
         coords={"time": times},
-        attrs={"source": f"ERA5 {DAILY_DATASET} {VARS[var]}", "year": year},
+        attrs={"source": f"{source} {VARS[var]}", "year": year, **(attrs or {})},
     )
     out_path.parent.mkdir(parents=True, exist_ok=True)
-    tmp = out_path.with_suffix(".tmp.nc")
-    res.to_netcdf(tmp, encoding={var: {"zlib": True, "complevel": 1, "chunksizes": (31, iy.size)}})
+    tmp = out_path.with_name(out_path.name + ".part")  # not *.nc, so no glob picks it up
+    n_t, n_cell = out.shape
+    enc = {var: {"zlib": True, "complevel": 1, "chunksizes": (min(31, n_t), n_cell)}}
+    res.to_netcdf(tmp, encoding=enc, format="NETCDF4", engine="netcdf4")
     tmp.replace(out_path)
 
 
