@@ -30,7 +30,10 @@ STEPS = {
         ("scripts/sync_blob.py", "up", "static", "metrics"),  # static: ps_clim.nc
     ],
     "deltas": [("scripts/build_projections.py", "deltas"), ("scripts/sync_blob.py", "up", "static")],
-    "shift": [("scripts/build_projections.py", "shift"), ("scripts/sync_blob.py", "up", "metrics")],
+    "shift": [
+        ("scripts/build_projections.py", "shift"),
+        ("scripts/sync_blob.py", "up", "static", "metrics"),  # static: ps_clim.nc if shift made it
+    ],
     "check": [("scripts/build_projections.py", "check")],
     "tables": [("scripts/build_tables.py",), ("scripts/sync_blob.py", "up", "tables")],
 }

@@ -16,7 +16,11 @@ Groups (paths relative to data/):
   era5static raw/era5/lsm.nc, ps_clim.nc     DOWN only, shared container
   tables    tables/*
 
-Uploads only send files whose size differs from the blob copy; downloads likewise.
+A download stamps the local file with the blob's last-modified time, and so does an upload; a file
+is uploaded when the blob copy is missing, differs in size, or the local file was modified after
+that stamp, and downloaded when the local copy is missing or does not match the blob's size and
+stamp. (Size alone is not enough: our netCDF outputs keep the same byte size when their values
+change.)
 """
 
 import datetime as dt
@@ -69,15 +73,25 @@ def client(write=False):
     return stratus.get_container_client(container_name=CONTAINER, stage=STAGE, write=write)
 
 
-def remote_sizes(c, sub=""):
+def remote_props(c, sub=""):
+    """{path under data/: (size, last-modified POSIX time)} for the blobs under PREFIX/sub."""
     return {
-        b.name[len(PREFIX) + 1 :]: b.size for b in c.list_blobs(name_starts_with=f"{PREFIX}/{sub}")
+        b.name[len(PREFIX) + 1 :]: (b.size, b.last_modified.timestamp())
+        for b in c.list_blobs(name_starts_with=f"{PREFIX}/{sub}")
     }
+
+
+def remote_sizes(c, sub=""):
+    return {k: v[0] for k, v in remote_props(c, sub).items()}
+
+
+def _stamp(p: Path, ts: float):
+    os.utime(p, (ts, ts))
 
 
 def up(groups):
     c = client(write=True)
-    have = remote_sizes(c)
+    have = remote_props(c)
     n = 0
     for g in groups:
         for pat in patterns(g):
@@ -85,12 +99,15 @@ def up(groups):
                 if not p.is_file():
                     continue
                 rel = p.relative_to(DATA).as_posix()
-                if have.get(rel) == p.stat().st_size:
-                    continue
+                st = p.stat()
+                r = have.get(rel)
+                if r and r[0] == st.st_size and st.st_mtime <= r[1] + 1:
+                    continue  # unchanged since it was downloaded or uploaded
                 with open(p, "rb") as f:
-                    c.upload_blob(f"{PREFIX}/{rel}", f, overwrite=True, max_concurrency=4)
+                    b = c.upload_blob(f"{PREFIX}/{rel}", f, overwrite=True, max_concurrency=4)
+                _stamp(p, b.get_blob_properties().last_modified.timestamp())
                 n += 1
-                logger.info("up %s (%.1f MB)", rel, p.stat().st_size / 1e6)
+                logger.info("up %s (%.1f MB)", rel, st.st_size / 1e6)
     logger.info("uploaded %d files", n)
 
 
@@ -98,22 +115,25 @@ def down(groups):
     import fnmatch
 
     c = client()
-    have = remote_sizes(c)
+    have = remote_props(c)
     n = 0
     for g in groups:
         for pat in patterns(g):
             regex_pat = pat.replace("**/", "*")
-            for rel, size in sorted(have.items()):
+            for rel, (size, mtime) in sorted(have.items()):
                 if not fnmatch.fnmatch(rel, regex_pat):
                     continue
                 p = DATA / rel
-                if p.exists() and p.stat().st_size == size:
-                    continue
+                if p.exists():
+                    st = p.stat()
+                    if st.st_size == size and abs(st.st_mtime - mtime) < 1:
+                        continue
                 p.parent.mkdir(parents=True, exist_ok=True)
                 tmp = p.with_suffix(p.suffix + ".part")
                 with open(tmp, "wb") as f:
                     c.download_blob(f"{PREFIX}/{rel}", max_concurrency=4).readinto(f)
                 tmp.replace(p)
+                _stamp(p, mtime)
                 n += 1
     logger.info("downloaded %d files", n)
 
