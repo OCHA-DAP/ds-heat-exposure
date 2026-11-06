@@ -1,7 +1,7 @@
 /* Extreme heat and people in need — dashboard. Data: window.HEAT, window.HEAT_GEO (inlined). */
 (function () {
   "use strict";
-  var D = window.HEAT, GEO = window.HEAT_GEO;
+  var D = window.HEAT, GEO = window.HEAT_GEO, WORLD = window.HEAT_WORLD;
   var M = D.meta;
   var LATEST = String(M.latest_complete_year);
   var RECENT = String(M.recent_period).replace("-", "–");
@@ -303,7 +303,7 @@
   }
 
   // ---------- map ----------
-  var map, layer;
+  var map = null;
   function colorFor(val) {
     if (val == null) return "#eeeeee";
     var b = BINS[state.metric], i = 0; while (i < b.length && val >= b[i]) i++; return RAMP[i];
@@ -315,25 +315,8 @@
     document.getElementById("map-sub").textContent = "Each area is an admin unit of a current GHO country plan, coloured by the " +
       (isMat ? "average temperature where its people live" : "average number of days for the people who live there") +
       ". Plans with only a national figure are shown as one area. Hover for details.";
-    if (!map) {
-      map = L.map("map", { preferCanvas: true, worldCopyJump: true, scrollWheelZoom: false });
-      L.tileLayer("https://server.arcgisonline.com/ArcGIS/rest/services/Canvas/World_Light_Gray_Base/MapServer/tile/{z}/{y}/{x}", {
-        attribution: "Tiles © Esri — Esri, HERE, Garmin, OpenStreetMap contributors", maxZoom: 10 }).addTo(map);
-      layer = L.geoJSON(GEO, {
-        style: styleFor,
-        onEachFeature: function (f, l) {
-          l.on("mousemove", function (e) {
-            var p = f.properties, val = unitVal(f);
-            showTip(e.originalEvent, val == null ? "no data" : (isMatNow() ? val.toFixed(1) + " °C" : val.toFixed(1) + " days a year"),
-              p.name + " (" + p.iso3 + ")", ["People in need: " + fmtPeople(p.pin)]);
-          });
-          l.on("mouseout", hideTip);
-        }
-      }).addTo(map);
-      map.fitBounds(layer.getBounds(), { padding: [10, 10] });
-    } else {
-      layer.setStyle(styleFor);
-    }
+    if (!map) map = initMap();
+    map.units.attr("fill", function (f) { return colorFor(unitVal(f)); });
     var lg = document.getElementById("map-legend"); lg.textContent = "";
     var b = BINS[state.metric], unit = isMat ? " °C" : " days";
     var labels = [];
@@ -345,8 +328,58 @@
     });
   }
   function isMatNow() { return state.metric === "mat"; }
-  function styleFor(f) {
-    return { fillColor: colorFor(unitVal(f)), fillOpacity: 0.85, color: "#ffffff", weight: 0.6 };
+  // Equal Earth (the projection the UN General Assembly encouraged in 2026), drawn with d3: world
+  // outlines underneath, the plans' admin areas on top. Drag to pan; +/− or ctrl+wheel to zoom.
+  // d3-geo is spherical: a ring wound the wrong way is drawn as everything except its area. The
+  // build orients rings, but rounding coordinates can still flip tiny slivers, so any polygon that
+  // covers more than half the globe is reversed here.
+  function fixWinding(fc) {
+    fc.features.forEach(function (f) {
+      var g = f.geometry;
+      var polys = !g ? [] : g.type === "Polygon" ? [g.coordinates] : g.type === "MultiPolygon" ? g.coordinates : [];
+      polys.forEach(function (rings) {
+        if (d3.geoArea({ type: "Polygon", coordinates: rings }) > 2 * Math.PI) rings.forEach(function (r) { r.reverse(); });
+      });
+    });
+  }
+  function initMap() {
+    fixWinding(WORLD); fixWinding(GEO);
+    var box = document.getElementById("map"); box.textContent = "";
+    var W = box.clientWidth || 900, H = box.clientHeight || 520;
+    var proj = d3.geoEqualEarth().fitExtent([[6, 6], [W - 6, H - 6]], WORLD);
+    var path = d3.geoPath(proj);
+    var svg = d3.select(box).append("svg").attr("viewBox", [0, 0, W, H])
+      .attr("role", "img").attr("aria-label", "Map of the admin areas of the current GHO country plans");
+    var g = svg.append("g");
+    g.append("path").datum({ type: "Sphere" }).attr("class", "sphere").attr("d", path);
+    g.append("g").attr("class", "countries").selectAll("path").data(WORLD.features).join("path").attr("d", path);
+    // coarser areas (people in need pooled to a province or the whole country) underneath
+    var feats = GEO.features.slice().sort(function (a, b) { return a.properties.level - b.properties.level; });
+    var units = g.append("g").attr("class", "units").selectAll("path").data(feats).join("path")
+      .attr("d", path)
+      .on("pointermove", function (ev, f) {
+        var p = f.properties, val = unitVal(f);
+        hl.attr("d", path(f));
+        showTip(ev, val == null ? "no data" : (isMatNow() ? val.toFixed(1) + " °C" : val.toFixed(1) + " days a year"),
+          (typeof p.name === "string" && p.name ? p.name : "Unnamed area") + " (" + p.iso3 + ")", ["People in need: " + fmtPeople(p.pin)]);
+      })
+      .on("pointerleave", function () { hl.attr("d", null); hideTip(); });
+    var hl = g.append("path").attr("class", "hl");  // hover outline, drawn over everything
+    // d3's default wheel step is 10x with ctrl (meant for trackpad pinch); our wheel zoom always has
+    // ctrl held, so use the plain step: one mouse notch ~1.3x, like the buttons
+    var zoom = d3.zoom().scaleExtent([1, 8]).translateExtent([[0, 0], [W, H]])
+      .wheelDelta(function (ev) { return -ev.deltaY * (ev.deltaMode === 1 ? 0.05 : ev.deltaMode ? 1 : 0.002); })
+      .filter(function (ev) { return (ev.type !== "wheel" || ev.ctrlKey) && !ev.button; })
+      .on("zoom", function (ev) { g.attr("transform", ev.transform); });
+    svg.call(zoom);
+    var ctl = el("div", { class: "map-zoom" });
+    [["+", 1.6, "Zoom in"], ["−", 1 / 1.6, "Zoom out"]].forEach(function (b) {
+      var btn = el("button", { type: "button", "aria-label": b[2] }, b[0]);
+      btn.addEventListener("click", function () { svg.transition().duration(250).call(zoom.scaleBy, b[1]); });
+      ctl.appendChild(btn);
+    });
+    box.appendChild(ctl);
+    return { svg: svg, units: units };
   }
 
   // ---------- country table ----------
@@ -385,8 +418,14 @@
       tr.appendChild(el("td", { class: "muted" }, r.c.is_hnrp ? "HNRP" : (r.c.plan_type || "")));
       tr.appendChild(el("td", { class: "num" }, fmtPeople(r.pin)));
       ["latest", "recent", "g2", "g3"].forEach(function (k) {
-        var td = el("td", { class: "num" }, r[k] == null ? "–" : (r[k] > 0 && r[k] < 0.01 ? "<1%" : Math.round(100 * r[k]) + "%"));
-        if (r[k] != null) { var bar = el("span", { class: "bar-in-cell" }); bar.style.width = Math.round(40 * r[k]) + "px"; td.appendChild(bar); }
+        // fixed-width number, then a fixed-width track: every bar in a column starts at the same x
+        var td = el("td", { class: "num share" });
+        td.appendChild(el("span", { class: "pct" }, r[k] == null ? "–" : (r[k] > 0 && r[k] < 0.01 ? "<1%" : Math.round(100 * r[k]) + "%")));
+        var track = el("span", { class: "track" });
+        if (r[k] != null && r[k] > 0) {
+          var fill = el("span", { class: "fill" }); fill.style.width = (100 * Math.min(1, r[k])).toFixed(1) + "%"; track.appendChild(fill);
+        }
+        td.appendChild(track);
         tr.appendChild(td);
       });
       tr.appendChild(el("td", { class: "muted" }, placement(r.c)));

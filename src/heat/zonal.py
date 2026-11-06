@@ -24,6 +24,23 @@ logger = logging.getLogger(__name__)
 warnings.filterwarnings("ignore", message=".*CRS84.*")
 
 
+def _name(g: gpd.GeoDataFrame, level: int) -> pd.Series:
+    """First non-empty name column: some CODs (e.g. CMR) leave adm{n}_name empty and put the
+    names in adm{n}_name1 (the second language)."""
+    cols = [
+        c
+        for c in (f"adm{level}_name", f"adm{level}_name1", f"adm{level}_name2", f"adm{level}_name3",
+                  f"adm{level}_ref_name1")
+        if c in g.columns
+    ]
+    if not cols:
+        raise KeyError(f"COD-AB has no adm{level}_name* column")
+    out = g[cols[0]].copy()
+    for c in cols[1:]:
+        out = out.where(out.notna() & (out.astype(str).str.strip() != ""), g[c])
+    return out
+
+
 @cache
 def codab(iso3: str, level: int) -> gpd.GeoDataFrame | None:
     """COD-AB polygons with columns pcode, name, parent_pcode (level-1), admin1_pcode."""
@@ -44,7 +61,7 @@ def codab(iso3: str, level: int) -> gpd.GeoDataFrame | None:
     out = gpd.GeoDataFrame(
         {
             "pcode": g[f"adm{level}_pcode"].astype(str),
-            "name": g[f"adm{level}_name"],
+            "name": _name(g, level),
             "parent_pcode": g[f"adm{level - 1}_pcode"].astype(str) if level > 1 else iso3,
             "admin1_pcode": g["adm1_pcode"].astype(str),
         },

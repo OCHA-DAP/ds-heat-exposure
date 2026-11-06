@@ -13,6 +13,10 @@ Read `docs/DESIGN.md` first: it records the method and every user decision.
 - "Deadly heat days" in the report are Mora et al. 2017; our stand-ins are WBGT ≥ 32 °C and
   WBT ≥ 31 °C — say so wherever they are shown.
 - Plain language on the site; no table/column names or raw codes in visible text.
+- The site map uses the Equal Earth projection (UN General Assembly "Correct the Map" resolution,
+  Sept 2026; user asked 2026-11-06), drawn with d3-geo, not Mercator web tiles. World outlines:
+  `site/world.json` from `scripts/build_world.py` (FieldMaps admin 0, intl worldview, USGS coastlines).
+  d3 is spherical: rings must be clockwise or a shape fills the whole globe (`fixWinding` in app.js).
 
 ## Data plumbing
 - ERA5 daily data come from ARCO-ERA5 hourly (public Google Cloud zarr; `heat/arco.py`,

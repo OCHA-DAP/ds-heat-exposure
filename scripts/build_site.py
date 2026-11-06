@@ -103,6 +103,7 @@ def build_data():
             geom = u.geometry
             if geom is None or geom.is_empty:
                 continue
+            geom = d3_orient(geom)
             feats.append(
                 {
                     "type": "Feature",
@@ -150,6 +151,25 @@ def encrypt(plain: bytes, password: str) -> str:
     return base64.b64encode(salt + iv + AESGCM(key).encrypt(iv, plain, None)).decode()
 
 
+def d3_orient(geom):
+    """Clockwise exterior rings in lon/lat. d3-geo is spherical: a ring wound the other way is
+    drawn as its complement (the whole globe except the area)."""
+    from shapely.geometry import MultiPolygon, Polygon
+    from shapely.geometry.polygon import orient
+
+    def parts(g):
+        if isinstance(g, Polygon):
+            return [g]
+        if isinstance(g, MultiPolygon):
+            return list(g.geoms)
+        return [p for sub in getattr(g, "geoms", []) for p in parts(sub)]
+
+    ps = [orient(p, -1.0) for p in parts(geom)]
+    if not ps:
+        return geom  # no polygon part (shouldn't happen for admin units)
+    return ps[0] if len(ps) == 1 else MultiPolygon(ps)
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--encrypt", action="store_true")
@@ -163,10 +183,13 @@ def main():
     js = (SRC / "app.js").read_text()
     css = (SRC / "style.css").read_text()
     payload = json.dumps(data, separators=(",", ":"), default=str).replace("</", "<\\/")
+    world = (SRC / "world.json").read_text().replace("</", "<\\/")  # scripts/build_world.py
     page = (
         tpl.replace("/*__CSS__*/", css)
         .replace(
-            "/*__DATA__*/", f"window.HEAT={payload};window.HEAT_GEO={geo.replace('</', '<\\/')};"
+            "/*__DATA__*/",
+            f"window.HEAT={payload};window.HEAT_GEO={geo.replace('</', '<\\/')};"
+            f"window.HEAT_WORLD={world};",
         )
         .replace("/*__APP__*/", js)
     )
