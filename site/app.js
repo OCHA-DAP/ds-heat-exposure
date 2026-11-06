@@ -4,7 +4,7 @@
   var D = window.HEAT, GEO = window.HEAT_GEO;
   var M = D.meta;
   var LATEST = String(M.latest_complete_year);
-  var RECENT = M.recent_period;
+  var RECENT = String(M.recent_period).replace("-", "–");
 
   var GROUPS = {
     hnrp_pin: "People in need in the HNRPs",
@@ -58,7 +58,7 @@
     hw: [1, 5, 10, 20, 30, 50], mat: [24, 26, 27, 28, 29, 30]
   };
 
-  var state = { group: "hnrp_pin", age: "total", metric: "wbgt32", thr: 10, period: "latest" };
+  var state = { group: "hnrp_pin", age: "total", metric: "hw", thr: 10, period: "latest" };
 
   // ---------- helpers ----------
   function el(tag, attrs, text) {
@@ -155,10 +155,20 @@
     var box = document.getElementById("kpis"); box.textContent = "";
     var n = node(state.group), mk = measureKey();
     var v = n && n[mk] ? n[mk] : {}, ppl = n && n.people ? n.people : {};
-    box.appendChild(kpi("In " + LATEST + ": " + phrase(true), fmtPeople(v.latest),
-      pct(v.latest, ppl.latest) + " of " + fmtPeople(ppl.latest)));
-    box.appendChild(kpi("Average a year, " + RECENT, fmtPeople(v.observed_mean),
-      "1995–2014 average: " + fmtPeople(v.ref)));
+    if (state.metric === "mat") {
+      // single years swing widely for this measure, so lead with the 10-year average
+      var r = seriesRange(state.group, state.age, "mat", "people_mat29", RECENT);
+      box.appendChild(kpi("On average, " + RECENT + ": " + phrase(true), fmtPeople(v.observed_mean),
+        pct(v.observed_mean, ppl.observed_mean) + " of " + fmtPeople(ppl.observed_mean) +
+        (r ? ". Single years ranged from " + fmtPeople(r[0]) + " to " + fmtPeople(r[1]) : "")));
+      box.appendChild(kpi("On average, 1995–2014", fmtPeople(v.ref),
+        "Today's people, in the earlier climate"));
+    } else {
+      box.appendChild(kpi("In " + LATEST + ": " + phrase(true), fmtPeople(v.latest),
+        pct(v.latest, ppl.latest) + " of " + fmtPeople(ppl.latest)));
+      box.appendChild(kpi("Average a year, " + RECENT, fmtPeople(v.observed_mean),
+        "1995–2014 average: " + fmtPeople(v.ref)));
+    }
     var d2 = (v["gwl_2.0"] != null && v.ref != null) ? v["gwl_2.0"] - v.ref : null;
     box.appendChild(kpi("At 2 °C of global warming (people held at today's numbers)", fmtPeople(v["gwl_2.0"]),
       (d2 != null ? (d2 >= 0 ? "+" : "−") + fmtPeople(Math.abs(d2)) + " compared with 1995–2014" : "")));
@@ -404,6 +414,14 @@
     D.years.forEach(function (y, i) { if (y >= y0 && y <= y1 && arr[i] != null) { tot += arr[i]; n++; } });
     return n ? tot / n : null;
   }
+  function seriesRange(gkey, age, metric, measure, period) {
+    var yy = String(period).split(/[-–]/).map(Number), lo = null, hi = null;
+    for (var y = yy[0]; y <= yy[1]; y++) {
+      var v = seriesAt(gkey, age, metric, measure, y);
+      if (v != null) { lo = lo == null ? v : Math.min(lo, v); hi = hi == null ? v : Math.max(hi, v); }
+    }
+    return lo == null ? null : [lo, hi];
+  }
   function seriesAt(gkey, age, metric, measure, year) {
     var s = D.series[gkey]; if (!s || !s[age] || !s[age][metric] || !s[age][metric][measure]) return null;
     var i = D.years.indexOf(+year); return i >= 0 ? s[age][metric][measure][i] : null;
@@ -441,7 +459,7 @@
         LATEST + ": " + shareMora("world") + " of people worldwide and " + shareMora("hnrp_pin") + " of people in need in the HNRPs had 20+ days of dangerous humid heat (WBGT 32 °C). A stricter threshold than Mora's, so lower shares are expected."],
       ["Up to a third of the world's population could live with yearly average temperatures now found on 0.8% of land, mostly the Sahara.",
         "Xu et al. 2020",
-        "Living where the yearly average is 29 °C or more: " + fmtPeople(mat("world", "latest")) + " people worldwide in " + LATEST + ", " + fmtPeople(mat("world", "gwl_2.0")) + " at 2 °C and " + fmtPeople(mat("world", "gwl_3.0")) + " at 3 °C. People in need in the HNRPs: " + fmtPeople(mat("hnrp_pin", "latest")) + " now, " + fmtPeople(mat("hnrp_pin", "gwl_2.0")) + " at 2 °C."],
+        "Living where the yearly average is 29 °C or more: " + fmtPeople(mat("world", "observed_mean")) + " people worldwide on average in " + RECENT + " (single years vary widely), " + fmtPeople(mat("world", "gwl_2.0")) + " at 2 °C and " + fmtPeople(mat("world", "gwl_3.0")) + " at 3 °C. People in need in the HNRPs: " + fmtPeople(mat("hnrp_pin", "observed_mean")) + " on average in " + RECENT + ", " + fmtPeople(mat("hnrp_pin", "gwl_2.0")) + " at 2 °C. The count depends strongly on the exact threshold: half a degree either way roughly halves or doubles it."],
       ["Limiting warming to 1.5 °C rather than 2 °C would spare up to 420 million people frequent exposure to extreme heatwaves.",
         "Dosio et al. 2018",
         "People with 10+ heatwave days a year: " + fmtPeople(dosio("world")) + " more at 2 °C than at 1.5 °C worldwide; " + fmtPeople(dosio("hnrp_pin")) + " more among people in need in the HNRPs. Different heatwave index from Dosio's."]
@@ -457,7 +475,7 @@
     box.appendChild(el("h2", null, "How these numbers are made"));
     var paras = [
       ["Weather", "Daily maximum and minimum temperature and humidity from ERA5 (ECMWF, Copernicus Climate Change Service), 0.25° grid, 1986 to " + (M.years[String(D.years[D.years.length - 1])] || {}).last_date + ". Updated monthly, about a week behind real time. Wet-bulb temperature is calculated from the daily maximum temperature and the daily mean humidity and surface pressure; the wet-bulb globe temperature is the shade version (no sun or wind), as in the Copernicus heat-stress indicators."],
-      ["Warming levels", "Each level (1.5, 2, 3 °C above 1850–1900) uses the 20 years when each CMIP6 climate model reaches it (IPCC AR6 Atlas, SSP5-8.5 runs). The median model change in each month’s temperature and humidity is added to ERA5’s observed days for 1995–2014, and the days are recounted. This keeps local detail from the weather data but leaves day-to-day variability as it was in 1995–2014, so the hottest extremes are probably understated. The model changes come from the Copernicus Interactive Climate Atlas."],
+      ["Warming levels", "Each level (1.5, 2, 3 °C above 1850–1900) uses the 20 years when each CMIP6 climate model reaches it (IPCC AR6 Atlas, SSP5-8.5 runs). The median model change in each month’s temperature and humidity is added to ERA5’s observed days for 1995–2014, and the days are recounted. This keeps local detail from the weather data but leaves day-to-day variability as it was in 1995–2014, so the hottest extremes are probably understated. The model changes come from the Copernicus Interactive Climate Atlas. As a check, we compared the projected change in hot days with the climate models' own counts, corrected for model bias (ISIMIP, from the same Atlas): for days over 40 °C the two agree to within about 10%; for days over 35 °C ours come out 10–25% lower at 2 and 3 °C, so those projections are probably on the low side."],
       ["People", "Population: WorldPop 2026, 1 km, with age groups. People in need: the official national figure of each current GHO country plan (" + (D.countries[0] || {}).year + "), spread over admin areas using the plan's own breakdown (needs analysis workbooks or HDX humanitarian needs data), and within each area like the population. People in need by age use the population's age mix in each area. All counts are held at today's figures, so changes over time and between warming levels show the change in heat only."],
       ["Current warming", "Human-caused warming of " + M.warming.p50.toFixed(2) + " °C in " + M.warming.year + " (likely " + M.warming.p05 + "–" + M.warming.p95 + " °C), from the Indicators of Global Climate Change, updated yearly."],
       ["What is not here", "This page does not project how many people will be in need. It measures how much dangerous heat today's people in need face, now and with more warming. Reanalysis grids are about 25 km wide, so they miss the hottest spots inside cities and camps; real exposure is likely higher."]
