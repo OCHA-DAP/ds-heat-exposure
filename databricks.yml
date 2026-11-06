@@ -71,6 +71,10 @@ resources:
       parameters:
         - name: stage
           default: ${var.stage}
+        # build_all's first step; after a failure, repair the run with this set to the failed
+        # step (job_parameters {"build_from": "deltas"}) to reuse the earlier steps' outputs
+        - name: build_from
+          default: p95
       job_clusters:
         - job_cluster_key: large
           new_cluster:
@@ -107,6 +111,9 @@ resources:
               - "scripts/build_all.py"
               - "--stage"
               - "{{job.parameters.stage}}"
+              - "--"
+              - "--from"
+              - "{{job.parameters.build_from}}"
 
 targets:
   dev:

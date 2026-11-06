@@ -7,7 +7,8 @@ ERA5 static fields and WorldPop from the team-shared raster container), then bui
 percentiles, the observed metrics for every year, the warming-level changes and the shifted
 projections, the shift-vs-Atlas cross-check and the exposure tables. Each step's outputs go back
 to blob as soon as it finishes, so after a failure `--from STEP` picks up from the saved outputs
-(on Databricks: a repair run with python_params ending `-- --from STEP`).
+(on Databricks: repair the run with job_parameters {"build_from": "STEP"}; Databricks
+refuses python_params on a job that has job parameters).
 
 Steps: p95 (skipped when p95.nc is already on blob), years, deltas, shift, check, tables.
 """
