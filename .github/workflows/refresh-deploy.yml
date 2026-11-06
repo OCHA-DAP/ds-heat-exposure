@@ -6,9 +6,8 @@ name: Refresh data and deploy site
 # Pushes that touch the site only redeploy (no refresh).
 
 on:
-  # Enable once the ERA5 backfill is complete and its state is on blob (see README):
-  # schedule:
-  #   - cron: "40 9 * * *" # daily; after the HNRP mirror's 08:00 UTC site deploy
+  schedule:
+    - cron: "40 9 * * *" # daily; after the HNRP mirror's 08:00 UTC site deploy
   workflow_dispatch:
     inputs:
       refresh:

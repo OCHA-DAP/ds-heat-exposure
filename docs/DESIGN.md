@@ -90,3 +90,20 @@ contain known bugs); the isobaric solution differs from DJ08 by a few tenths of 
   1986–2005 average. Our ERA5 + WorldPop recomputation should land within ~2× of this.
 - Lenton et al. 2023: ~60 million people live where the annual mean is ≥ 29 °C today.
 - IPCC SPM.6 values are copied, not recomputed.
+
+Results of the first full build (2026-11-06):
+- ERA5 daily from ARCO-ERA5 vs the CDS daily-statistics download: 1986 daily maxima identical to within
+  0.001 °C on every day and cell.
+- Lancet: 5.5 billion more heatwave person-days in 2020 than 1986–2005 (over-65s 4.7, infants 0.9), with
+  2026 population held fixed. 1.5× the published figure; today's larger over-65 population accounts for much
+  of it.
+- Lenton: 173 million people at a yearly mean ≥ 29 °C (2016–2025 mean, 2026 population); 94 million for
+  1995–2014. Lenton pairs 2010 population with 2000–2020 climate; like for like (2006–2015, Sahel populations
+  scaled back to 2010) we get ~70 million. A ±0.5 °C shift in the threshold halves or doubles the count
+  (mostly Sudan, Niger, Burkina Faso, Mali, Nigeria, Chad), and single years range 108–282 million, so the
+  site should quote a 10-year mean.
+- Shift method vs the Atlas ISIMIP-adjusted CMIP6 hot-day counts (change from 1995–2014, population-weighted):
+  TX40 +2.4 / +4.9 / +10.5 days vs +2.3 / +5.1 / +11.6 at 1.5 / 2 / 3 °C; TX35 +7.4 / +14.7 / +31.9 vs
+  +8.2 / +18.1 / +42.2. Days over 35 °C are probably understated by 10–25 % at 2–3 °C. The cause is not
+  established; it is not tail widening, since TX40 agrees (candidates: 14 models here vs 16 there, regional
+  differences).
